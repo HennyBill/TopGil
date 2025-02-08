@@ -1,4 +1,4 @@
-Test
+Test2
 
 # TODO:
 --->>> Important! Truncate debug logfile - not working atm. -> Use NLog, can do this automatically and will anyway be better than our own logger.
