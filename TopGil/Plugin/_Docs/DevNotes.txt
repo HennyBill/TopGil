@@ -1,0 +1,21 @@
+
+# TODO:
+--->>> Important! Truncate debug logfile - not working atm. -> Use NLog, can do this automatically and will anyway be better than our own logger.
+Handle deleted characters (and retainers).
+
+Automatic print total gil when logging in (optional)
+Black list a character (and retainers) to not be tracked... e.g. stupid dummy/test alts etc. Maybe a retainer dedicated to selling guild stuff.
+PrintGilSummary() : PrintOnExitRetainerBell + PrintShowDetails -- make them a config option.
+Use Plugin.Log instead of our own logger.
+-------------------------------------------------------------------------------------------------------------------------
+
+Add slash command to delete a game character including all retainers -> cmd to list all characters with a number -> cmd to delete a character by number (including all its retainers)
+Add slash command to delete a specific retainer -> cmd to list all retainers with a number -> cmd to delete a retainer by number
+
+Future:
+Session gil tracking, daily, weekly, monthly, yearly, all time.
+Store daily gil income in a sqlite database
+
+Plugin name ideas: GilManiac, Giloholic, GilGold, Gilculator, Gilcollector.
+
+-------------------------------------------------------------------------------------------------------------------------

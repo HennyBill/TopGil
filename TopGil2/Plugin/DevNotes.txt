@@ -1,0 +1,330 @@
+
+# TODO:
+Dev-mode - use a different database file
+Handle renaming of characters and retainers.
+Report: Total days logged for reporting.
+Print after leaving summoning bell, print total gil earned in the session/day/etc. pls how many characters and retainers are being tracked.
+Show gil mount since last /topgil command
+Add slash command to delete a game character including all retainers -> cmd to list all characters with a number -> cmd to delete a character by number (including all its retainers)
+Add slash command to delete a specific retainer -> cmd to list all retainers with a number -> cmd to delete a retainer by number
+Session gil tracking, daily, weekly, monthly, yearly, all time.
+Store daily gil income in a sqlite database
+Automatic print total gil when logging in (optional)
+Black list af character (and retainers) to not be tracked... e.g. stupid dummy/test alts etc.
+
+Plugin names: GilManiac, Giloholic.
+
+Errors:
+TopGil is accessing ObjectTable outside the main thread. This is deprecated.
+Dalamud.Plugin.Ipc.Exceptions.IpcNotReadyError' in Dalamud.dll
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+AutoRetainer.cs line 142
+Svc.Condition.ConditionChange += ConditionChange;
+
+Service.ClientState.LocalPlayer == null ||  !Service.ClientState.IsLoggedIn
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+I working on a Dalamud plugin for the game FFXIV.
+Its purpose is to track the gil income of each character and their retainers.
+A player can have multiple characters.
+When a player/character activates the retainer summoning bell, the plugin should update a
+record of the gil amount of each character and their retainers. Note that the character can
+visit the summoning bell multiple times in a session, let alone in a day.
+Example:
+Chika Misaki has 25482700 Gil
+* Retainer 1: Angel-goldheart. Gil = 660003181
+* Retainer 2: Julieta-rubyred. Gil = 9729500
+* Retainer 3: Toki-doki. Gil = 4515440
+* Retainer 4: Banana-joe. Gil = 17180830
+* Retainer 5: Doki-toki. Gil = 9185315
+* Retainer 6: Benny-ironfist. Gil = 8037875
+* Retainer 7: Johnny-typhoon. Gil = 14775088
+* Retainer 8: Bigbrian. Gil = 13037424
+* Retainer 9: Critneyfears. Gil = 11545135
+* Retainer 10: Jilly'bean. Gil = 12846388
+I want the plugin to record the nescarry data to calculate the gil income of each character and their retainers.
+The user of the plugin should be able to print the total gil earned in the current session, daily, weekly, monthly, yearly or in a specific period.
+How should I implement this? What kind of data structure should i use to store this data?
+I'm thinking of using a SQLite database to store the data.
+So far I got this down:
+1. Save a record each time the player interacts with the retainer bell (that where each retainers gil amount is getting updated).
+2. With this record, we can calculate a session's gil income. But how do i calculate daily, weekly, monthly, yearly gil income, etc.
+
+I got this basic structures down:
+public class Character
+{
+    public string Name { get; set; }
+    public uint WordId { get; set; }
+    public long Gil { get; set; }
+    public DateTime LastUpdated { get; set; }
+    public List<Retainer> Retainers { get; set; }
+}
+
+public class Retainer
+{
+    public string Name { get; set; }
+    public long Gil { get; set; }
+    public DateTime LastUpdated { get; set; }
+}
+
+What "Manager" class should I create to handle the data - collecting and retrieving it?
+What data structure should I use to store and maintain the data?
+-------
+I think there a big major flaw with our code and the logic. See, a character can visit the retainer summoning bell multiple
+times a day, and there will be saved a record each time right? All these will accumulate right? This will result in a
+faulty result not showing the actual number of Gil currency each character have including retainers.
+I think we should aggregate even more data. Any suggestions. And also, pls add some sanity checks that a new record actually
+i posted timwwise after the previous record.
+-------
+
+public class GilManager
+{
+    private readonly string connectionString;
+
+    public GilManager(string dbPath)
+    {
+        connectionString = $"Data Source={dbPath};Version=3;";
+        InitializeDatabase();
+    }
+
+    private void InitializeDatabase()
+    {
+        using var connection = new SQLiteConnection(connectionString);
+        connection.Open();
+
+        string createCharacterTable = @"
+            CREATE TABLE IF NOT EXISTS Characters (
+                Id TEXT PRIMARY KEY,
+                Name TEXT,
+                WorldId INTEGER,
+                Gil INTEGER,
+                LastUpdated TEXT
+            );";
+
+        string createRetainerTable = @"
+            CREATE TABLE IF NOT EXISTS Retainers (
+                Id TEXT PRIMARY KEY,
+                Name TEXT,
+                CharacterId TEXT,
+                Gil INTEGER,
+                LastUpdated TEXT,
+                FOREIGN KEY(CharacterId) REFERENCES Characters(Id)
+            );";
+
+        string createGilRecordTable = @"
+            CREATE TABLE IF NOT EXISTS GilRecords (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                CharacterId TEXT,
+                RetainerId TEXT,
+                Gil INTEGER,
+                Timestamp TEXT
+            );";
+
+        string createDailySummaryTable = @"
+            CREATE TABLE IF NOT EXISTS DailyGilSummary (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                CharacterId TEXT,
+                RetainerId TEXT,
+                TotalGil INTEGER,
+                Date TEXT
+            );";
+
+        using var command = new SQLiteCommand(createCharacterTable, connection);
+        command.ExecuteNonQuery();
+
+        command.CommandText = createRetainerTable;
+        command.ExecuteNonQuery();
+
+        command.CommandText = createGilRecordTable;
+        command.ExecuteNonQuery();
+
+        command.CommandText = createDailySummaryTable;
+        command.ExecuteNonQuery();
+    }
+
+OLD    public void SaveGilRecord(Guid characterId, Guid? retainerId, long gil)
+    {
+        using var connection = new SQLiteConnection(connectionString);
+        connection.Open();
+
+        string insertGilRecord = @"
+            INSERT INTO GilRecords (CharacterId, RetainerId, Gil, Timestamp)
+            VALUES (@CharacterId, @RetainerId, @Gil, @Timestamp);";
+
+        using var command = new SQLiteCommand(insertGilRecord, connection);
+        command.Parameters.AddWithValue("@CharacterId", characterId.ToString());
+        command.Parameters.AddWithValue("@RetainerId", retainerId?.ToString());
+        command.Parameters.AddWithValue("@Gil", gil);
+        command.Parameters.AddWithValue("@Timestamp", DateTime.UtcNow);
+        command.ExecuteNonQuery();
+    }
+
+NEW    public void SaveGilRecord(Guid characterId, Guid? retainerId, long gil)
+    {
+        using var connection = new SQLiteConnection(connectionString);
+        connection.Open();
+
+        // Check if a record for today already exists
+        string checkQuery = @"
+            SELECT Gil FROM GilRecords
+            WHERE CharacterId = @CharacterId AND RetainerId = @RetainerId AND DATE(Timestamp) = DATE('now');";
+
+        using var checkCommand = new SQLiteCommand(checkQuery, connection);
+        checkCommand.Parameters.AddWithValue("@CharacterId", characterId.ToString());
+        checkCommand.Parameters.AddWithValue("@RetainerId", retainerId?.ToString());
+
+        var existingGil = checkCommand.ExecuteScalar();
+
+        if (existingGil != null)
+        {
+            // Update the existing record
+            string updateQuery = @"
+                UPDATE GilRecords
+                SET Gil = @Gil, Timestamp = @Timestamp
+                WHERE CharacterId = @CharacterId AND RetainerId = @RetainerId AND DATE(Timestamp) = DATE('now');";
+
+            using var updateCommand = new SQLiteCommand(updateQuery, connection);
+            updateCommand.Parameters.AddWithValue("@Gil", gil);
+            updateCommand.Parameters.AddWithValue("@Timestamp", DateTime.UtcNow);
+            updateCommand.Parameters.AddWithValue("@CharacterId", characterId.ToString());
+            updateCommand.Parameters.AddWithValue("@RetainerId", retainerId?.ToString());
+            updateCommand.ExecuteNonQuery();
+        }
+        else
+        {
+            // Insert a new record
+            string insertQuery = @"
+                INSERT INTO GilRecords (CharacterId, RetainerId, Gil, Timestamp)
+                VALUES (@CharacterId, @RetainerId, @Gil, @Timestamp);";
+
+            using var insertCommand = new SQLiteCommand(insertQuery, connection);
+            insertCommand.Parameters.AddWithValue("@CharacterId", characterId.ToString());
+            insertCommand.Parameters.AddWithValue("@RetainerId", retainerId?.ToString());
+            insertCommand.Parameters.AddWithValue("@Gil", gil);
+            insertCommand.Parameters.AddWithValue("@Timestamp", DateTime.UtcNow);
+            insertCommand.ExecuteNonQuery();
+        }
+    }
+
+
+    public void AggregateDailyRecords()
+    {
+        using var connection = new SQLiteConnection(connectionString);
+        connection.Open();
+
+        // Aggregate daily records
+        string aggregateQuery = @"
+            INSERT INTO DailyGilSummary (CharacterId, RetainerId, TotalGil, Date)
+            SELECT CharacterId, RetainerId, SUM(Gil), DATE(Timestamp)
+            FROM GilRecords
+            GROUP BY CharacterId, RetainerId, DATE(Timestamp);";
+
+        using var aggregateCommand = new SQLiteCommand(aggregateQuery, connection);
+        aggregateCommand.ExecuteNonQuery();
+
+        // Delete old records
+        string deleteQuery = @"
+            DELETE FROM GilRecords
+            WHERE Timestamp < DATE('now', '-1 day');";
+
+        using var deleteCommand = new SQLiteCommand(deleteQuery, connection);
+        deleteCommand.ExecuteNonQuery();
+    }
+
+    public long CalculateGilIncome(Guid characterId, DateTime start, DateTime end)
+    {
+        using var connection = new SQLiteConnection(connectionString);
+        connection.Open();
+
+        string query = @"
+            SELECT SUM(Gil) FROM GilRecords
+            WHERE CharacterId = @CharacterId AND Timestamp BETWEEN @Start AND @End;";
+
+        using var command = new SQLiteCommand(query, connection);
+        command.Parameters.AddWithValue("@CharacterId", characterId.ToString());
+        command.Parameters.AddWithValue("@Start", start);
+        command.Parameters.AddWithValue("@End", end);
+
+        return (long)command.ExecuteScalar();
+    }
+
+    public long CalculateRetainerGilIncome(Guid characterId, Guid retainerId, DateTime start, DateTime end)
+    {
+        using var connection = new SQLiteConnection(connectionString);
+        connection.Open();
+
+        string query = @"
+            SELECT SUM(Gil) FROM GilRecords
+            WHERE CharacterId = @CharacterId AND RetainerId = @RetainerId AND Timestamp BETWEEN @Start AND @End;";
+
+        using var command = new SQLiteCommand(query, connection);
+        command.Parameters.AddWithValue("@CharacterId", characterId.ToString());
+        command.Parameters.AddWithValue("@RetainerId", retainerId.ToString());
+        command.Parameters.AddWithValue("@Start", start);
+        command.Parameters.AddWithValue("@End", end);
+
+        return (long)command.ExecuteScalar();
+    }
+
+    public long CalculateTotalGilIncome(Guid characterId, DateTime start, DateTime end)
+    {
+        using var connection = new SQLiteConnection(connectionString);
+        connection.Open();
+
+        string query = @"
+            SELECT SUM(Gil) FROM GilRecords
+            WHERE CharacterId = @CharacterId AND Timestamp BETWEEN @Start AND @End
+            UNION ALL
+            SELECT SUM(Gil) FROM GilRecords
+            WHERE CharacterId = @CharacterId AND RetainerId IS NOT NULL AND Timestamp BETWEEN @Start AND @End;";
+
+        using var command = new SQLiteCommand(query, connection);
+        command.Parameters.AddWithValue("@CharacterId", characterId.ToString());
+        command.Parameters.AddWithValue("@Start", start);
+        command.Parameters.AddWithValue("@End", end);
+
+        long totalGil = 0;
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            totalGil += reader.IsDBNull(0) ? 0 : reader.GetInt64(0);
+        }
+
+        return totalGil;
+    }
+}
+
+var gilManager = new GilManager("giltracker.db");
+
+// Create character and retainer GUIDs
+var characterId = Guid.NewGuid();
+var retainerId = Guid.NewGuid();
+
+// Save a gil record for a character
+gilManager.SaveGilRecord(characterId, null, 25482700);
+
+// Save a gil record for a retainer
+gilManager.SaveGilRecord(characterId, retainerId, 660003181);
+
+// Aggregate daily records
+gilManager.AggregateDailyRecords();
+
+// Calculate gil income for a character over a specific period
+var start = DateTime.UtcNow.AddDays(-1);
+var end = DateTime.UtcNow;
+long characterIncome = gilManager.CalculateGilIncome(characterId, start, end);
+Console.WriteLine($"Character Gil income: {characterIncome}");
+
+// Calculate gil income for a retainer over a specific period
+long retainerIncome = gilManager.CalculateRetainerGilIncome(characterId, retainerId, start, end);
+Console.WriteLine($"Retainer Gil income: {retainerIncome}");
+
+// Calculate total gil income for a character and its retainers over a specific period
+long totalIncome = gilManager.CalculateTotalGilIncome(characterId, start, end);
+Console.WriteLine($"Total Gil income: {totalIncome}");
+

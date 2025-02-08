@@ -1,0 +1,12 @@
+{
+    "Author": "Badz",
+    "Name": "TopGil",
+    "Punchline": "Gil gil gil and even more gil.... but how much do I actually have?",
+    "Description": "Ever wondered how much Gil you have stashed away on all your characters and retainers? This plugin will answer exactly that. Please visit your retainers, updates are done there.",
+    "ApplicableVersion": "any",
+    "Tags": [
+        "Gil"
+    ],
+    "DalamudApiLevel": 11,
+    "EffectiveApiLevel": 11
+}
